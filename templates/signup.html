@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign up - TripMate AI</title>
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: "Segoe UI", Arial, sans-serif;
+            color: #e8ecf8;
+            background: radial-gradient(circle at 20% 20%, #1a2a6c 0%, #0b1030 45%, #05070f 100%);
+        }
+
+        .card {
+            width: 100%;
+            max-width: 420px;
+            margin: 24px;
+            padding: 36px 32px;
+            border-radius: 24px;
+            background: rgba(10, 14, 40, 0.85);
+            border: 1px solid rgba(140, 160, 255, 0.25);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 999px;
+            border: 1px solid rgba(140, 160, 255, 0.35);
+            color: #b9c4ff;
+            font-size: 13px;
+            margin-bottom: 18px;
+        }
+
+        h1 { margin: 0 0 6px; font-size: 28px; }
+        .sub { margin: 0 0 24px; color: #9aa4cf; font-size: 14px; }
+
+        label { display: block; margin: 14px 0 6px; font-size: 14px; color: #c8d0f5; }
+
+        input {
+            width: 100%;
+            padding: 13px 14px;
+            border-radius: 12px;
+            border: 1px solid rgba(140, 160, 255, 0.3);
+            background: #060a22;
+            color: #ffffff;
+            font-size: 15px;
+            outline: none;
+        }
+        input:focus { border-color: #6c7bff; box-shadow: 0 0 0 3px rgba(108, 123, 255, 0.25); }
+
+        button {
+            width: 100%;
+            margin-top: 22px;
+            padding: 14px;
+            border: none;
+            border-radius: 14px;
+            font-size: 16px;
+            font-weight: 700;
+            color: #ffffff;
+            cursor: pointer;
+            background: linear-gradient(135deg, #3b5bff, #7c3aed);
+        }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .message { margin-top: 16px; font-size: 14px; min-height: 20px; }
+        .message.ok { color: #4ade80; }
+        .message.err { color: #ff8a8a; }
+
+        .switch { margin-top: 20px; text-align: center; font-size: 14px; color: #9aa4cf; }
+        .switch a { color: #9db0ff; text-decoration: none; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <span class="badge">&#9992;&#65039; TripMate AI</span>
+        <h1>Create your account</h1>
+        <p class="sub">Sign up to start planning your trips with AI.</p>
+
+        <form id="signup-form" novalidate>
+            <label for="name">Full name</label>
+            <input id="name" type="text" autocomplete="name" placeholder="Your name" required>
+
+            <label for="email">Email</label>
+            <input id="email" type="email" autocomplete="email" placeholder="you@example.com" required>
+
+            <label for="password">Password</label>
+            <input id="password" type="password" autocomplete="new-password" placeholder="At least 8 characters" required>
+
+            <button id="submit-btn" type="submit">Create account</button>
+            <div id="message" class="message"></div>
+        </form>
+
+        <div class="switch">Already have an account? <a href="/login">Log in</a></div>
+    </div>
+
+    <script>
+        const form = document.getElementById("signup-form");
+        const message = document.getElementById("message");
+        const button = document.getElementById("submit-btn");
+
+        form.addEventListener("submit", async function (event) {
+            event.preventDefault();
+
+            message.textContent = "";
+            message.className = "message";
+            button.disabled = true;
+            button.textContent = "Creating account...";
+
+            try {
+                const response = await fetch("/api/signup", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        name: document.getElementById("name").value,
+                        email: document.getElementById("email").value,
+                        password: document.getElementById("password").value
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    message.textContent = data.message;
+                    message.className = "message ok";
+                    form.reset();
+                } else {
+                    message.textContent = data.error || "Something went wrong.";
+                    message.className = "message err";
+                }
+            } catch (error) {
+                message.textContent = "Could not reach the server. Please try again.";
+                message.className = "message err";
+            } finally {
+                button.disabled = false;
+                button.textContent = "Create account";
+            }
+        });
+    </script>
+</body>
+</html>
