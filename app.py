@@ -23,6 +23,14 @@ from auth import (
 )
 from backend import resume_travel_agent, run_travel_agent
 from email_service import send_welcome_email
+from threads import (
+    delete_thread,
+    get_thread,
+    init_threads_table,
+    list_threads,
+    save_draft,
+    save_final,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -48,6 +56,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 # Creates the users and thread_owners tables if they do not exist yet
 init_users_table()
+init_threads_table()
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +114,7 @@ async def home(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"user_name": user["name"]},
+        context={"user_name": user["name"], "user_email": user["email"]},
     )
 
 
@@ -238,22 +247,6 @@ def travel_planner(request_data: TravelRequest, request: Request):
                 content={"success": False, "error": "Message cannot be empty."},
             )
 
-        # if request_data.thread_id and not claim_thread(
-        #     request_data.thread_id, user["id"]
-        # ):
-        #     return JSONResponse(
-        #         status_code=403,
-        #         content={
-        #             "success": False,
-        #             "error": "This plan belongs to another account.",
-        #         },
-        #     )
-
-        # result = run_travel_agent(
-        #     user_input=user_message,
-        #     thread_id=request_data.thread_id,
-        # )
-        
         thread_id = request_data.thread_id
         if thread_id and not claim_thread(thread_id, user["id"]):
             thread_id = None  # not this user's plan: start a fresh one
@@ -264,6 +257,15 @@ def travel_planner(request_data: TravelRequest, request: Request):
         )
 
         claim_thread(result["thread_id"], user["id"])
+
+        # Save this trip in the user's Recent list (only when a draft was made)
+        if result.get("requires_approval"):
+            save_draft(
+                result["thread_id"],
+                user["id"],
+                user_message,
+                result.get("itinerary") or result.get("answer", ""),
+            )
 
         return JSONResponse(content={"success": True, **result})
 
@@ -307,6 +309,9 @@ def approve_travel_plan(request_data: ApprovalRequest, request: Request):
             feedback=request_data.feedback,
         )
 
+        # Save the final plan in the user's Recent list
+        save_final(request_data.thread_id, user["id"], result.get("answer", ""))
+
         return JSONResponse(content={"success": True, **result})
 
     except Exception as exc:
@@ -316,6 +321,49 @@ def approve_travel_plan(request_data: ApprovalRequest, request: Request):
             status_code=500,
             content={"success": False, "error": str(exc)},
         )
+
+
+# ---------------------------------------------------------------------------
+# Saved trips (Recent list) - login required
+# ---------------------------------------------------------------------------
+@app.get("/api/threads")
+def list_my_threads(request: Request):
+    user = get_current_user(request)
+    if user is None:
+        return not_logged_in_response()
+
+    return {"success": True, "threads": list_threads(user["id"])}
+
+
+@app.get("/api/threads/{thread_id}")
+def open_my_thread(thread_id: str, request: Request):
+    user = get_current_user(request)
+    if user is None:
+        return not_logged_in_response()
+
+    thread = get_thread(thread_id, user["id"])
+    if thread is None:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "error": "Trip not found."},
+        )
+
+    return {"success": True, "thread": thread}
+
+
+@app.delete("/api/threads/{thread_id}")
+def delete_my_thread(thread_id: str, request: Request):
+    user = get_current_user(request)
+    if user is None:
+        return not_logged_in_response()
+
+    if not delete_thread(thread_id, user["id"]):
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "error": "Trip not found."},
+        )
+
+    return {"success": True}
 
 
 # ---------------------------------------------------------------------------
