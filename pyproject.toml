@@ -29,6 +29,7 @@ dependencies = [
     "psycopg[binary]==3.3.4",
     "pycountry==26.2.16",
     "pydantic==2.13.5",
+    "pyjwt>=2.15.1",
     "python-dotenv==1.2.2",
     "requests==2.34.2",
     "tavily-python==0.7.24",

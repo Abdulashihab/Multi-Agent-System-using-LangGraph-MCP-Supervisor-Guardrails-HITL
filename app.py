@@ -238,20 +238,29 @@ def travel_planner(request_data: TravelRequest, request: Request):
                 content={"success": False, "error": "Message cannot be empty."},
             )
 
-        if request_data.thread_id and not claim_thread(
-            request_data.thread_id, user["id"]
-        ):
-            return JSONResponse(
-                status_code=403,
-                content={
-                    "success": False,
-                    "error": "This plan belongs to another account.",
-                },
-            )
+        # if request_data.thread_id and not claim_thread(
+        #     request_data.thread_id, user["id"]
+        # ):
+        #     return JSONResponse(
+        #         status_code=403,
+        #         content={
+        #             "success": False,
+        #             "error": "This plan belongs to another account.",
+        #         },
+        #     )
+
+        # result = run_travel_agent(
+        #     user_input=user_message,
+        #     thread_id=request_data.thread_id,
+        # )
+        
+        thread_id = request_data.thread_id
+        if thread_id and not claim_thread(thread_id, user["id"]):
+            thread_id = None  # not this user's plan: start a fresh one
 
         result = run_travel_agent(
             user_input=user_message,
-            thread_id=request_data.thread_id,
+            thread_id=thread_id,
         )
 
         claim_thread(result["thread_id"], user["id"])

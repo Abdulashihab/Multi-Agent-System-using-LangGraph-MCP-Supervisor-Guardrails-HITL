@@ -12,6 +12,7 @@ import uuid
 import asyncio
 import json
 import psycopg
+from psycopg_pool import ConnectionPool
 from psycopg.rows import dict_row
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.postgres import PostgresSaver
