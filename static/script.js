@@ -1,6 +1,10 @@
-let currentThreadId = localStorage.getItem("travel_thread_id") || null;
+// Every trip is its own thread. The page no longer reuses an old thread id.
+let currentThreadId = null;
 let latestAnswerMarkdown = "";
 let waitingForApproval = false;
+
+// Older versions stored the thread id in the browser. We do not use it any more.
+localStorage.removeItem("travel_thread_id");
 
 const AGENT_LABELS = {
   flight_agent: "✈️ Flight Agent",
@@ -45,6 +49,15 @@ function hideError() {
   const errorBox = document.getElementById("errorBox");
   errorBox.classList.add("hidden");
   errorBox.textContent = "";
+}
+
+// If the login has expired, the server answers 401. Go back to the login page.
+function goToLoginIfExpired(response) {
+  if (response.status === 401) {
+    window.location.href = "/login";
+    return true;
+  }
+  return false;
 }
 
 function renderMarkdown(element, markdown) {
@@ -120,7 +133,7 @@ async function sendMessage() {
   hideError();
 
   if (waitingForApproval) {
-    showError("Please approve or revise the current draft before starting another plan.");
+    showError("Please approve or revise the current draft before starting another plan. Or click + New trip.");
     return;
   }
 
@@ -135,6 +148,7 @@ async function sendMessage() {
   setLoading(true, "draft");
 
   try {
+    // thread_id is null: every new request becomes its own new trip (thread)
     const response = await fetch("/api/travel", {
       method: "POST",
       headers: {
@@ -142,9 +156,13 @@ async function sendMessage() {
       },
       body: JSON.stringify({
         message: message,
-        thread_id: currentThreadId
+        thread_id: null
       })
     });
+
+    if (goToLoginIfExpired(response)) {
+      return;
+    }
 
     const data = await response.json();
 
@@ -153,7 +171,6 @@ async function sendMessage() {
     }
 
     currentThreadId = data.thread_id;
-    localStorage.setItem("travel_thread_id", currentThreadId);
 
     showWorkflow(data);
 
@@ -164,6 +181,8 @@ async function sendMessage() {
       hideApproval();
       showResult(data.answer, data.thread_id, false);
     }
+
+    loadThreads();
   } catch (error) {
     showError(error.message);
   } finally {
@@ -203,6 +222,10 @@ async function submitApproval(approved) {
       })
     });
 
+    if (goToLoginIfExpired(response)) {
+      return;
+    }
+
     const data = await response.json();
 
     if (!response.ok || !data.success) {
@@ -212,6 +235,7 @@ async function submitApproval(approved) {
     showWorkflow(data);
     hideApproval();
     showResult(data.answer, data.thread_id, false);
+    loadThreads();
   } catch (error) {
     showError(error.message);
   } finally {
@@ -292,8 +316,200 @@ function downloadPDF() {
     });
 }
 
+// ---------------------------------------------------------------------------
+// Recent trips sidebar
+// ---------------------------------------------------------------------------
+function isMobileView() {
+  return window.innerWidth <= 900;
+}
+
+function toggleSidebar() {
+  document.body.classList.toggle("sidebar-open");
+}
+
+function closeSidebarOnMobile() {
+  if (isMobileView()) {
+    document.body.classList.remove("sidebar-open");
+  }
+}
+
+function markActiveThread() {
+  document.querySelectorAll(".thread-item").forEach((item) => {
+    item.classList.toggle("active", item.dataset.threadId === currentThreadId);
+  });
+}
+
+function showThreadMessage(text) {
+  const list = document.getElementById("threadList");
+  list.innerHTML = "";
+  const message = document.createElement("div");
+  message.className = "thread-empty";
+  message.textContent = text;
+  list.appendChild(message);
+}
+
+function renderThreadList(threads) {
+  const list = document.getElementById("threadList");
+  list.innerHTML = "";
+
+  if (threads.length === 0) {
+    showThreadMessage("No trips yet. Your plans will appear here.");
+    return;
+  }
+
+  threads.forEach((thread) => {
+    const item = document.createElement("div");
+    item.className = "thread-item";
+    item.dataset.threadId = thread.thread_id;
+    if (thread.thread_id === currentThreadId) {
+      item.classList.add("active");
+    }
+
+    const openBtn = document.createElement("button");
+    openBtn.type = "button";
+    openBtn.className = "thread-open";
+    openBtn.title = thread.title;
+    openBtn.addEventListener("click", () => openThread(thread.thread_id));
+
+    const dot = document.createElement("span");
+    dot.className = "thread-dot " + (thread.status === "finished" ? "finished" : "pending");
+
+    const title = document.createElement("span");
+    title.className = "thread-title";
+    title.textContent = thread.title;
+
+    openBtn.appendChild(dot);
+    openBtn.appendChild(title);
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "thread-delete";
+    deleteBtn.title = "Delete this trip";
+    deleteBtn.setAttribute("aria-label", "Delete this trip");
+    deleteBtn.textContent = "×";
+    deleteBtn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteThread(thread.thread_id);
+    });
+
+    item.appendChild(openBtn);
+    item.appendChild(deleteBtn);
+    list.appendChild(item);
+  });
+}
+
+async function loadThreads() {
+  try {
+    const response = await fetch("/api/threads");
+
+    if (goToLoginIfExpired(response)) {
+      return;
+    }
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Could not load trips.");
+    }
+
+    renderThreadList(data.threads || []);
+  } catch (error) {
+    showThreadMessage("Could not load your trips.");
+  }
+}
+
+async function openThread(threadId) {
+  hideError();
+
+  try {
+    const response = await fetch("/api/threads/" + encodeURIComponent(threadId));
+
+    if (goToLoginIfExpired(response)) {
+      return;
+    }
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Could not open this trip.");
+    }
+
+    const thread = data.thread;
+    currentThreadId = thread.thread_id;
+
+    document.getElementById("userInput").value = thread.user_request || "";
+    document.getElementById("workflowSection").classList.add("hidden");
+
+    if (thread.status === "finished") {
+      hideApproval();
+      showResult(thread.final_plan || thread.draft, thread.thread_id, false);
+    } else {
+      // Still waiting for approval: show the draft and the approve / revise box again
+      showResult(thread.draft, thread.thread_id, true);
+      showApproval({});
+    }
+
+    markActiveThread();
+    closeSidebarOnMobile();
+  } catch (error) {
+    showError(error.message);
+  }
+}
+
+async function deleteThread(threadId) {
+  if (!confirm("Delete this trip from your Recent list?")) {
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/threads/" + encodeURIComponent(threadId), {
+      method: "DELETE"
+    });
+
+    if (goToLoginIfExpired(response)) {
+      return;
+    }
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Could not delete this trip.");
+    }
+
+    if (threadId === currentThreadId) {
+      newTrip();
+    }
+
+    loadThreads();
+  } catch (error) {
+    showError(error.message);
+  }
+}
+
+function newTrip() {
+  currentThreadId = null;
+  latestAnswerMarkdown = "";
+
+  hideError();
+  hideApproval();
+
+  const input = document.getElementById("userInput");
+  input.value = "";
+
+  document.getElementById("workflowSection").classList.add("hidden");
+  document.getElementById("resultSection").classList.add("hidden");
+
+  markActiveThread();
+  closeSidebarOnMobile();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  input.focus();
+}
+
 document.addEventListener("keydown", function(event) {
   if (event.ctrlKey && event.key === "Enter") {
     sendMessage();
   }
 });
+
+// Load the Recent list when the page opens
+loadThreads();
